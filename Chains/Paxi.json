@@ -1,0 +1,30 @@
+{
+  "chain_name": "paxi-mainnet",
+  "api": [
+    {
+      "address": "https://mainnet-lcd.paxinet.io",
+      "provider": "Paxi Foundation"
+    }
+  ],
+  "rpc": [
+    {
+      "address": "https://mainnet-rpc.paxinet.io",
+      "provider": "Paxi Foundation"
+    }
+  ],
+  "sdk_version": "0.47.0",
+  "coin_type": "118",
+  "min_tx_fee": "0.05",
+  "assets": [
+    {
+      "base": "upaxi",
+      "symbol": "PAXI",
+      "exponent": "6",
+      "coingecko_id": "paxi",
+      "logo": "https://file.winsnip.xyz/file/uploads/paxi.jpg"
+    }
+  ],
+  "addr_prefix": "paxi",
+  "theme_color": "#812cd6",
+  "logo": "https://file.winsnip.xyz/file/uploads/paxi.jpg"
+}

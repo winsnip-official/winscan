@@ -1,0 +1,211 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { 
+  Home, 
+  Box, 
+  FileText, 
+  Users, 
+  Vote, 
+  Wallet,
+  Activity,
+  Settings,
+  Coins,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  X,
+  Globe,
+  RefreshCw,
+  Shield
+} from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { ChainData } from '@/types/chain';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getTranslation } from '@/lib/i18n';
+
+interface SidebarProps {
+  selectedChain: ChainData | null;
+}
+
+interface MenuItem {
+  name: string;
+  translationKey: string;
+  path: string;
+  icon: React.ReactNode;
+}
+
+export default function Sidebar({ selectedChain }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
+  const { language } = useLanguage();
+  
+  const t = (key: string) => getTranslation(language, key);
+  
+  const chainPath = useMemo(() => {
+    const pathParts = pathname.split('/').filter(Boolean);
+    if (pathParts.length > 0) {
+      return `/${pathParts[0]}`;
+    }
+    return selectedChain ? `/${selectedChain.chain_name.toLowerCase().replace(/\s+/g, '-')}` : '';
+  }, [pathname, selectedChain]);
+
+  const menuItems: MenuItem[] = useMemo(() => [
+    { name: 'Overview', translationKey: 'menu.overview', path: chainPath || '/', icon: <Home className="w-5 h-5" /> },
+    { name: 'Blocks', translationKey: 'menu.blocks', path: `${chainPath}/blocks`, icon: <Box className="w-5 h-5" /> },
+    { name: 'Transactions', translationKey: 'menu.transactions', path: `${chainPath}/transactions`, icon: <FileText className="w-5 h-5" /> },
+    { name: 'Validators', translationKey: 'menu.validators', path: `${chainPath}/validators`, icon: <Users className="w-5 h-5" /> },
+    { name: 'Uptime', translationKey: 'menu.uptime', path: `${chainPath}/uptime`, icon: <Activity className="w-5 h-5" /> },
+    { name: 'Proposals', translationKey: 'menu.proposals', path: `${chainPath}/proposals`, icon: <Vote className="w-5 h-5" /> },
+    { name: 'Assets', translationKey: 'menu.assets', path: `${chainPath}/assets`, icon: <Coins className="w-5 h-5" /> },
+    { name: 'Accounts', translationKey: 'menu.accounts', path: `${chainPath}/accounts`, icon: <Wallet className="w-5 h-5" /> },
+    { name: 'Network', translationKey: 'menu.network', path: `${chainPath}/network`, icon: <Globe className="w-5 h-5" /> },
+    { name: 'Consensus', translationKey: 'menu.consensus', path: `${chainPath}/consensus`, icon: <Shield className="w-5 h-5" /> },
+    { name: 'State Sync', translationKey: 'menu.statesync', path: `${chainPath}/statesync`, icon: <RefreshCw className="w-5 h-5" /> },
+    { name: 'Parameters', translationKey: 'menu.parameters', path: `${chainPath}/parameters`, icon: <Settings className="w-5 h-5" /> },
+  ], [chainPath]);
+
+  // Prefetch all pages on mount for instant navigation
+  useEffect(() => {
+    menuItems.forEach(item => {
+      router.prefetch(item.path);
+    });
+  }, [menuItems, router]);
+
+  const handleCollapse = useCallback(() => {
+    setCollapsed(prev => !prev);
+    // Save state to localStorage
+    localStorage.setItem('sidebar-collapsed', String(!collapsed));
+  }, [collapsed]);
+
+  const handleMobileToggle = useCallback(() => {
+    setMobileOpen(prev => !prev);
+  }, []);
+
+  const closeMobile = useCallback(() => {
+    setMobileOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const savedState = localStorage.getItem('sidebar-collapsed');
+    if (savedState === 'true') {
+      setCollapsed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        setMobileOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return (
+    <>
+      <button
+        onClick={handleMobileToggle}
+        className="md:hidden fixed top-4 left-4 z-50 p-2 bg-gray-800 rounded-lg transition-all duration-200 active:scale-95 hover:bg-gray-700 shadow-lg"
+        aria-label="Toggle menu"
+      >
+        {mobileOpen ? <X className="w-6 h-6 text-white" /> : <Menu className="w-6 h-6 text-white" />}
+      </button>
+
+      {mobileOpen && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/60 z-20 animate-fade-in backdrop-blur-sm"
+          onClick={closeMobile}
+        />
+      )}
+
+      <aside
+        className={`fixed left-0 top-0 h-full bg-[#0f0f0f] border-r border-gray-800 transition-all duration-300 ease-in-out z-30 flex flex-col
+          ${collapsed ? 'w-16' : 'w-64'} 
+          ${mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0'}
+          max-md:w-64`}
+      >
+        {/* Logo / Header */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-800 flex-shrink-0">
+          {!collapsed && selectedChain && (
+            <div className="flex items-center space-x-3 animate-fade-in">
+              <img 
+                src={selectedChain.logo} 
+                alt={selectedChain.chain_name} 
+                className="w-8 h-8 rounded-full object-cover"
+                loading="eager"
+              />
+              <span className="text-white font-bold truncate">
+                {selectedChain.chain_name}
+              </span>
+            </div>
+          )}
+          {collapsed && selectedChain && (
+            <img 
+              src={selectedChain.logo} 
+              alt={selectedChain.chain_name} 
+              className="w-8 h-8 rounded-full mx-auto object-cover"
+              loading="eager"
+            />
+          )}
+        </div>
+
+        <nav className="py-4 overflow-y-auto flex-1 overscroll-contain">
+          {menuItems.map((item) => {
+            const isActive = pathname === item.path;
+            const displayName = t(item.translationKey);
+            return (
+              <Link
+                key={item.path}
+                href={item.path}
+                prefetch={true}
+                onClick={closeMobile}
+                className={`flex items-center px-4 py-3 transition-all duration-200 touch-manipulation select-none ${
+                  isActive
+                    ? 'bg-blue-500/10 text-blue-500 border-r-4 border-blue-500'
+                    : 'text-gray-400 hover:bg-gray-800/50 hover:text-white active:bg-gray-700'
+                } ${collapsed ? 'justify-center' : 'space-x-3'} 
+                ${!collapsed && !isActive ? 'hover:translate-x-1' : ''}`}
+                title={collapsed ? displayName : ''}
+              >
+                <span className={`transition-transform ${isActive ? 'scale-110' : ''}`}>{item.icon}</span>
+                {!collapsed && <span className="font-medium whitespace-nowrap">{displayName}</span>}
+                {!collapsed && isActive && (
+                  <div className="ml-auto w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="hidden md:block p-4 border-t border-gray-800 flex-shrink-0">
+          <button
+            onClick={handleCollapse}
+            className="w-full p-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-all duration-200 hover:scale-105 active:scale-95 flex items-center justify-center"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? (
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            ) : (
+              <>
+                <ChevronLeft className="w-4 h-4 text-gray-400 mr-2" />
+                <span className="text-xs text-gray-400">Collapse</span>
+              </>
+            )}
+          </button>
+        </div>
+      </aside>
+
+      <div className={`hidden md:block ${collapsed ? 'w-16' : 'w-64'} flex-shrink-0 transition-all duration-300`} />
+    </>
+  );
+}

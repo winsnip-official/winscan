@@ -1,0 +1,36 @@
+{
+    "chain_name": "kiichain-test",
+    "api": [
+        {
+            "address": "https://api-kiichain.Winnode.xyz",
+            "provider": "Winnode"
+        },
+        {
+            "address": "https://lcd.dos.sentry.testnet.v3.kiivalidator.com",
+            "provider": "Winnode"
+        }
+    ],
+    "rpc": [
+        {
+            "address": "https://rpc-kiichain.Winnode.xyz",
+            "provider": "Winnode"
+        },
+        {
+            "address": "https://rpc.dos.sentry.testnet.v3.kiivalidator.com",
+            "provider": "Winnode"
+        }
+    ],
+    "sdk_version": "0.46.1",
+    "coin_type": "60",
+    "min_tx_fee": "800",
+    "assets": [{
+        "base": "akii",
+        "symbol": "KII",
+        "exponent": "18",
+        "coingecko_id": "unknown",
+        "logo": ""
+    }],
+    "addr_prefix": "kii",
+    "theme_color": "#812cd6",
+    "logo": "https://pbs.twimg.com/profile_images/1800553180083666944/zZe128CW_400x400.jpg"
+}
