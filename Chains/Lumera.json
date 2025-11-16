@@ -1,6 +1,6 @@
 {
     "chain_name": "lumera-mainnet",
-    "chain_id": "lumera_2099-1",
+    "chain_id": " lumera-mainnet-1",
     "api": [
         {
             "address": "https://lcd.lumera.io",
