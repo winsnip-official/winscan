@@ -42,6 +42,7 @@ export default function AccountPage() {
   const [account, setAccount] = useState<AccountDetail | null>(null);
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -78,6 +79,7 @@ export default function AccountPage() {
       const cacheKey = `account_${selectedChain.chain_name}_${params.address}`;
       const cached = sessionStorage.getItem(cacheKey);
       
+      // Stale-while-revalidate: Show cache immediately if available
       if (cached) {
         const { accountData, txData, timestamp } = JSON.parse(cached);
         setAccount(accountData);
@@ -87,20 +89,31 @@ export default function AccountPage() {
           : [];
         setTransactions(sortedTxs);
         setLoading(false);
+        setError(null); // Clear any previous error
 
-        if (Date.now() - timestamp < 30000) {
-          return;
-        }
+        // If cache is still fresh (< 30s), still fetch in background for updates
+        // But don't skip the fetch - always revalidate
       } else {
         setLoading(true);
+        setError(null);
       }
 
+      // Always fetch fresh data (in background if cache exists)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased to 15s
       
       fetch(`/api/accounts?chain=${selectedChain.chain_id || selectedChain.chain_name}&address=${params.address}`, { signal: controller.signal })
-        .then(r => r.json())
+        .then(r => {
+          if (!r.ok) {
+            throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+          }
+          return r.json();
+        })
         .then((accountData) => {
+          if (accountData && accountData.error) {
+            throw new Error(accountData.error);
+          }
+          
           if (accountData) {
             setAccount(accountData);
 
@@ -109,6 +122,7 @@ export default function AccountPage() {
               ? [...txs].sort((a: any, b: any) => (b.height || 0) - (a.height || 0))
               : [];
             setTransactions(sortedTxs);
+            setError(null); // Clear error on success
           }
           setLoading(false);
 
@@ -120,7 +134,20 @@ export default function AccountPage() {
         })
         .catch(err => {
           console.error('Error loading account:', err);
-          setLoading(false);
+          
+          // Only show error if we don't have cached data
+          if (!cached) {
+            setLoading(false);
+            if (err.name === 'AbortError') {
+              setError('Request timeout. The RPC endpoint is not responding. Please try again later.');
+            } else {
+              setError(`Failed to load account data: ${err.message}`);
+            }
+          } else {
+            // We have cache, so just log the error but keep showing cached data
+            console.warn('Failed to refresh account data, showing cached version:', err);
+            setError(`⚠️ Showing cached data. Failed to refresh: ${err.message}`);
+          }
         })
         .finally(() => clearTimeout(timeoutId));
     }
@@ -189,6 +216,25 @@ export default function AccountPage() {
               </button>
             </div>
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className={`mb-6 border rounded-lg p-4 ${
+              error.startsWith('⚠️') 
+                ? 'bg-yellow-900/20 border-yellow-700/50' 
+                : 'bg-red-900/20 border-red-700/50'
+            }`}>
+              <p className={error.startsWith('⚠️') ? 'text-yellow-400' : 'text-red-400'}>
+                {error}
+              </p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <div className="text-center py-20">
@@ -338,7 +384,7 @@ export default function AccountPage() {
                     </div>
                     <p className="text-gray-400">{t('accountDetail.noTransactions')}</p>
                     <p className="text-gray-600 text-sm mt-2">
-                      This account has no transaction history yet
+                      {error ? 'Unable to load transactions due to RPC error' : 'This account has no transaction history yet'}
                     </p>
                   </div>
                 )}
@@ -346,7 +392,24 @@ export default function AccountPage() {
             </div>
           ) : (
             <div className="text-center py-20">
-              <p className="text-gray-500">{t('accountDetail.notFound')}</p>
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-red-900/20 border border-red-700/50 rounded-full mb-4">
+                <XCircle className="w-8 h-8 text-red-500" />
+              </div>
+              <p className="text-gray-400 text-lg mb-2">Account not found or unable to load</p>
+              <p className="text-gray-600 text-sm">
+                The account data could not be retrieved. This may be due to:
+              </p>
+              <ul className="text-gray-600 text-sm mt-2 space-y-1">
+                <li>• RPC endpoint timeout or error</li>
+                <li>• Invalid account address</li>
+                <li>• Network connectivity issues</li>
+              </ul>
+              <button 
+                onClick={() => window.location.reload()}
+                className="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                Retry
+              </button>
             </div>
           )}
         </main>

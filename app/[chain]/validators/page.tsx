@@ -57,9 +57,9 @@ export default function ValidatorsPage() {
     if (cachedData && cachedData.length > 0) {
       setValidators(cachedData);
       setLoading(false);
+    } else if (showLoading) {
+      setLoading(true);
     }
-    
-    if (showLoading && !cachedData) setLoading(true);
     
     try {
       const controller = new AbortController();
@@ -74,10 +74,10 @@ export default function ValidatorsPage() {
       startTransition(() => {
         setValidators(data);
         setCache(cacheKey, data);
+        setLoading(false);
       });
     } catch (err) {
       if (cachedData) setValidators(cachedData);
-    } finally {
       setLoading(false);
     }
   }, [selectedChain]);

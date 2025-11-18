@@ -16,6 +16,8 @@ import { getCacheKey, setCache as setCacheUtil, getStaleCache } from '@/lib/cach
 import { fetchApi } from '@/lib/api';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getTranslation } from '@/lib/i18n';
+import { prefetchOnIdle } from '@/lib/prefetch';
+import { fetchChainsWithCache } from '@/lib/chainsCache';
 
 export default function ChainOverviewPage() {
   const params = useParams();
@@ -39,78 +41,73 @@ export default function ChainOverviewPage() {
 
   useEffect(() => {
 
-    const cachedChains = sessionStorage.getItem('chains');
-    
-    if (cachedChains) {
-      const data = JSON.parse(cachedChains);
-      setChains(data);
-      const chainName = params?.chain as string;
-      const chain = chainName 
-        ? data.find((c: ChainData) => c.chain_name.toLowerCase().replace(/\s+/g, '-') === chainName.toLowerCase())
-        : data.find((c: ChainData) => c.chain_name === 'lumera-mainnet') || data[0];
-      if (chain) setSelectedChain(chain);
-    } else {
-      fetchApi('/api/chains')
-        .then(res => res.json())
-        .then(data => {
-          sessionStorage.setItem('chains', JSON.stringify(data));
-          setChains(data);
-          const chainName = params?.chain as string;
-          const chain = chainName 
-            ? data.find((c: ChainData) => c.chain_name.toLowerCase().replace(/\s+/g, '-') === chainName.toLowerCase())
-            : data.find((c: ChainData) => c.chain_name === 'lumera-mainnet') || data[0];
-          if (chain) setSelectedChain(chain);
-        });
-    }
+    fetchChainsWithCache()
+      .then(data => {
+        setChains(data);
+        const chainName = params?.chain as string;
+        const chain = chainName 
+          ? data.find((c: ChainData) => c.chain_name.toLowerCase().replace(/\s+/g, '-') === chainName.toLowerCase())
+          : data.find((c: ChainData) => c.chain_name === 'lumera-mainnet') || data[0];
+        if (chain) setSelectedChain(chain);
+      })
+      .catch(err => console.error('Error loading chains:', err));
   }, [params]);
 
   useEffect(() => {
     if (selectedChain) {
       const chainKey = `chain_data_${selectedChain.chain_name}`;
-      const cacheTimeout = 30000; // 30 seconds
+      const cacheTimeout = 30000;
 
-      const hasCachedNetwork = sessionStorage.getItem(`${chainKey}_network`);
-      const hasCachedBlocks = sessionStorage.getItem(`${chainKey}_blocks`);
-      const hasCachedValidators = sessionStorage.getItem(`${chainKey}_validators`);
-      const hasCachedTransactions = sessionStorage.getItem(`${chainKey}_transactions`);
+      let hasAnyCache = false;
       
-      if (hasCachedNetwork || hasCachedBlocks || hasCachedValidators) {
-        setLoading(false); // Remove loading immediately if we have cache
-
-        try {
-          if (hasCachedNetwork) {
-            const { data } = JSON.parse(hasCachedNetwork);
-            setStats({
-              chainId: data.chainId || selectedChain.chain_name,
-              latestBlock: data.latestBlockHeight || '0',
-              blockTime: '~6s',
-              peers: data.totalPeers || 0,
-            });
-          }
-          if (hasCachedBlocks) {
-            const { data } = JSON.parse(hasCachedBlocks);
-            if (data && data.length > 0) setBlocks(data);
-          }
-          if (hasCachedValidators) {
-            const { data } = JSON.parse(hasCachedValidators);
-            if (data && data.length > 0) {
-              setValidators(data);
-              const totalBonded = data.reduce((sum: number, v: any) => 
-                sum + (parseFloat(v.votingPower) || 0), 0
-              ) / 1000000;
-              setTotalSupply(totalBonded > 0 ? totalBonded * 1.5 : 1000000);
-            }
-          }
-          if (hasCachedTransactions) {
-            const { data } = JSON.parse(hasCachedTransactions);
-            if (data && data.length > 0) setTransactions(data);
-          }
-        } catch (e) {
-          console.warn('Error preloading cache:', e);
+      try {
+        const cachedNetwork = sessionStorage.getItem(`${chainKey}_network`);
+        const cachedBlocks = sessionStorage.getItem(`${chainKey}_blocks`);
+        const cachedValidators = sessionStorage.getItem(`${chainKey}_validators`);
+        const cachedTransactions = sessionStorage.getItem(`${chainKey}_transactions`);
+        
+        if (cachedNetwork) {
+          const { data } = JSON.parse(cachedNetwork);
+          setStats({
+            chainId: data.chainId || selectedChain.chain_name,
+            latestBlock: data.latestBlockHeight || '0',
+            blockTime: '~6s',
+            peers: data.totalPeers || 0,
+          });
+          hasAnyCache = true;
         }
-      } else {
-        setLoading(true);
+        if (cachedBlocks) {
+          const { data } = JSON.parse(cachedBlocks);
+          if (data && data.length > 0) {
+            setBlocks(data);
+            hasAnyCache = true;
+          }
+        }
+        if (cachedValidators) {
+          const { data } = JSON.parse(cachedValidators);
+          if (data && data.length > 0) {
+            setValidators(data);
+            const totalBonded = data.reduce((sum: number, v: any) => 
+              sum + (parseFloat(v.votingPower) || 0), 0
+            ) / 1000000;
+            setTotalSupply(totalBonded > 0 ? totalBonded * 1.5 : 1000000);
+            hasAnyCache = true;
+          }
+        }
+        if (cachedTransactions) {
+          const { data } = JSON.parse(cachedTransactions);
+          if (data && data.length > 0) {
+            setTransactions(data);
+            hasAnyCache = true;
+          }
+        }
+      } catch (e) {
+        console.warn('Error loading cache:', e);
       }
+      
+      setLoading(false);
+      
+      setLoading(false);
       
       setDataLoaded({
         network: false,
@@ -123,8 +120,7 @@ export default function ChainOverviewPage() {
         try {
           const cached = sessionStorage.getItem(key);
           if (!cached) return null;
-          const { data, timestamp } = JSON.parse(cached);
-          if (Date.now() - timestamp > cacheTimeout) return null;
+          const { data } = JSON.parse(cached);
           return data;
         } catch {
           return null;
@@ -134,9 +130,7 @@ export default function ChainOverviewPage() {
       const setCache = (key: string, data: any) => {
         try {
           sessionStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
-        } catch (e) {
-          console.warn('Cache error:', e);
-        }
+        } catch (e) {}
       };
 
       const fetchWithRetry = async (url: string, retries = 2) => {
@@ -159,19 +153,7 @@ export default function ChainOverviewPage() {
 
       const loadNetwork = async () => {
         try {
-          const cached = getCache(`${chainKey}_network`);
-          if (cached) {
-            setStats({
-              chainId: cached.chainId || selectedChain.chain_name,
-              latestBlock: cached.latestBlockHeight || '0',
-              blockTime: '~6s',
-              peers: cached.totalPeers || 0,
-            });
-            setDataLoaded(prev => ({ ...prev, network: true }));
-          }
-          
           const data = await fetchWithRetry(`/api/network?chain=${selectedChain.chain_id || selectedChain.chain_name}`);
-          console.log('[Overview] Network data:', data);
           setStats({
             chainId: data.chainId || selectedChain.chain_name,
             latestBlock: data.latestBlockHeight || '0',
@@ -181,42 +163,23 @@ export default function ChainOverviewPage() {
           setCache(`${chainKey}_network`, data);
           setDataLoaded(prev => ({ ...prev, network: true }));
         } catch (err) {
-          console.error('Network error:', err);
           setDataLoaded(prev => ({ ...prev, network: true }));
         }
       };
 
       const loadBlocks = async () => {
         try {
-          const cached = getCache(`${chainKey}_blocks`);
-          if (cached && cached.length > 0) {
-            setBlocks(cached);
-            setDataLoaded(prev => ({ ...prev, blocks: true }));
-          }
-          
           const data = await fetchWithRetry(`/api/blocks?chain=${selectedChain.chain_id || selectedChain.chain_name}&limit=30`);
-          console.log('[Overview] Blocks data:', data);
           setBlocks(data);
           setCache(`${chainKey}_blocks`, data);
           setDataLoaded(prev => ({ ...prev, blocks: true }));
         } catch (err) {
-          console.error('Blocks error:', err);
           setDataLoaded(prev => ({ ...prev, blocks: true }));
         }
       };
 
       const loadValidators = async () => {
         try {
-          const cached = getCache(`${chainKey}_validators`);
-          if (cached && cached.length > 0) {
-            setValidators(cached);
-            const totalBonded = cached.reduce((sum: number, v: any) => 
-              sum + (parseFloat(v.votingPower) || 0), 0
-            ) / 1000000;
-            setTotalSupply(totalBonded > 0 ? totalBonded * 1.5 : 1000000);
-            setDataLoaded(prev => ({ ...prev, validators: true }));
-          }
-          
           const data = await fetchWithRetry(`/api/validators?chain=${selectedChain.chain_id || selectedChain.chain_name}`);
           setValidators(data);
           const totalBonded = data.reduce((sum: number, v: any) => 
@@ -226,25 +189,17 @@ export default function ChainOverviewPage() {
           setCache(`${chainKey}_validators`, data);
           setDataLoaded(prev => ({ ...prev, validators: true }));
         } catch (err) {
-          console.error('Validators error:', err);
           setDataLoaded(prev => ({ ...prev, validators: true }));
         }
       };
 
       const loadTransactions = async () => {
         try {
-          const cached = getCache(`${chainKey}_transactions`);
-          if (cached && cached.length > 0) {
-            setTransactions(cached);
-            setDataLoaded(prev => ({ ...prev, transactions: true }));
-          }
-          
           const data = await fetchWithRetry(`/api/transactions?chain=${selectedChain.chain_id || selectedChain.chain_name}&limit=20`);
           setTransactions(data);
           setCache(`${chainKey}_transactions`, data);
           setDataLoaded(prev => ({ ...prev, transactions: true }));
         } catch (err) {
-          console.error('Transactions error:', err);
           setDataLoaded(prev => ({ ...prev, transactions: true }));
         }
       };

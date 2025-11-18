@@ -9,7 +9,7 @@ class CacheManager {
   async get<T>(
     key: string,
     fetcher: () => Promise<T>,
-    ttl: number = 30000,
+    ttl: number = 60000,
     staleWhileRevalidate: boolean = true
   ): Promise<T> {
     const cached = this.cache.get(key);
@@ -17,7 +17,7 @@ class CacheManager {
     if (cached && now < cached.expiresAt) {
       return cached.data;
     }
-    if (cached && staleWhileRevalidate && now >= cached.expiresAt) {
+    if (cached && staleWhileRevalidate) {
       const staleData = cached.data;
       this.fetchAndCache(key, fetcher, ttl).catch(() => {});
       return staleData;
@@ -51,7 +51,7 @@ class CacheManager {
     this.pendingRequests.set(key, request);
     return request;
   }
-  set<T>(key: string, data: T, ttl: number = 30000): void {
+  set<T>(key: string, data: T, ttl: number = 60000): void {
     const now = Date.now();
     this.cache.set(key, {
       data,

@@ -1,0 +1,40 @@
+{
+  "chain_name": "osmosis-mainnet",
+  "chain_id": "osmosis-1",
+  "addr_prefix": "osmo",
+  "api": [
+    {
+      "address": "https://lcd.osmosis.zone",
+      "provider": "Osmosis Foundation"
+    },
+    {
+      "address": "https://osmosis-api.polkachu.com",
+      "provider": "Polkachu"
+    },
+    {
+      "address": "https://api-osmosis.cosmos-spaces.cloud",
+      "provider": "Cosmos Spaces"
+    }
+  ],
+  "rpc": [
+    {
+      "address": "https://osmosis-rpc.polkachu.com",
+      "provider": "Polkachu"
+    },
+    {
+      "address": "https://rpc.osmosis.zone",
+      "provider": "Osmosis Foundation"
+    },
+    {
+      "address": "https://rpc-osmosis.cosmos-spaces.cloud",
+      "provider": "Cosmos Spaces"
+    }
+  ],
+  "assets": {
+    "base": "uosmo",
+    "symbol": "OSMO",
+    "exponent": "6",
+    "coingecko_id": "osmosis",
+    "logo": "https://s2.coinmarketcap.com/static/img/coins/64x64/12220.png"
+  }
+}

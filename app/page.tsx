@@ -9,6 +9,7 @@ import { getTranslation } from '@/lib/i18n';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import WinScanLogo from '@/components/WinScanLogo';
 import Footer from '@/components/Footer';
+import { fetchChainsWithCache } from '@/lib/chainsCache';
 export default function Home() {
   const [chains, setChains] = useState<ChainData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,7 +20,7 @@ export default function Home() {
     setMounted(true);
     const minLoadTime = new Promise(resolve => setTimeout(resolve, 1500));
     Promise.all([
-      fetchApi('/api/chains').then(res => res.json()),
+      fetchChainsWithCache(),
       minLoadTime
     ])
       .then(([data]) => {

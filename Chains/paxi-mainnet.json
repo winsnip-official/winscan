@@ -1,5 +1,6 @@
 {
   "chain_name": "paxi-mainnet",
+  "chain_id": "paxi-mainnet",
   "api": [
     {
       "address": "https://mainnet-lcd.paxinet.io",
@@ -25,6 +26,8 @@
     }
   ],
   "addr_prefix": "paxi",
+  "bech32_prefix": "paxi",
   "theme_color": "#812cd6",
-  "logo": "https://file.winsnip.xyz/file/uploads/paxi.jpg"
+  "logo": "https://file.winsnip.xyz/file/uploads/paxi.jpg",
+  "updated": "2025-11-17"
 }

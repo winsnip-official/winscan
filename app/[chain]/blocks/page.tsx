@@ -60,24 +60,25 @@ export default function BlocksPage() {
     
     if (cachedData && cachedData.length > 0) {
       setBlocks(cachedData);
-      setLoading(false); // Remove loading immediately
+      setLoading(false);
+    } else if (showLoading) {
+      setLoading(true);
     }
     
-    if (showLoading && !cachedData) setLoading(true);
-    else setIsRefreshing(true);
+    if (!showLoading) setIsRefreshing(true);
     
     try {
       const data = await fetchWithCache<BlockData[]>(
         `/api/blocks?chain=${selectedChain.chain_id || selectedChain.chain_name}&limit=${blocksPerPage}&page=${currentPage}`,
         {},
-        0 // No cache for realtime data
+        0
       );
       setBlocks(data);
-      setCache(cacheKey, data); // Save to localStorage
-    } catch (err) {
-      console.error('Error loading blocks:', err);
-    } finally {
+      setCache(cacheKey, data);
       setLoading(false);
+    } catch (err) {
+      setLoading(false);
+    } finally {
       setIsRefreshing(false);
     }
   }, [selectedChain, currentPage, blocksPerPage]);
@@ -87,10 +88,10 @@ export default function BlocksPage() {
   }, [fetchBlocks]);
 
   useEffect(() => {
-    if (!selectedChain || currentPage !== 1) return; // Only auto-refresh on first page
+    if (!selectedChain || currentPage !== 1) return;
     
     const interval = setInterval(() => {
-      fetchBlocks(false); // Silent refresh without loading state
+      fetchBlocks(false);
     }, 6000);
 
     return () => clearInterval(interval);

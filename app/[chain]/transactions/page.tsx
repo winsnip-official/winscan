@@ -60,10 +60,11 @@ export default function TransactionsPage() {
     if (cachedData && cachedData.length > 0) {
       setTransactions(cachedData);
       setLoading(false);
+    } else if (showLoading) {
+      setLoading(true);
     }
     
-    if (showLoading && !cachedData) setLoading(true);
-    else setIsRefreshing(true);
+    if (!showLoading) setIsRefreshing(true);
     
     try {
       const res = await fetchApi(`/api/transactions?chain=${selectedChain.chain_id || selectedChain.chain_name}&limit=${txsPerPage}&page=${currentPage}`);
@@ -72,11 +73,11 @@ export default function TransactionsPage() {
       const txData = Array.isArray(data) ? data : [];
       setTransactions(txData);
       setCache(cacheKey, txData);
-    } catch (err) {
-      console.error('Error loading transactions:', err);
-      setTransactions([]); // Set empty array on error
-    } finally {
       setLoading(false);
+    } catch (err) {
+      setTransactions([]);
+      setLoading(false);
+    } finally {
       setIsRefreshing(false);
     }
   }, [selectedChain, currentPage, txsPerPage]);
@@ -89,7 +90,7 @@ export default function TransactionsPage() {
     if (!selectedChain || currentPage !== 1) return;
     
     const interval = setInterval(() => {
-      fetchTransactions(false); // Silent refresh
+      fetchTransactions(false);
     }, 6000);
 
     return () => clearInterval(interval);

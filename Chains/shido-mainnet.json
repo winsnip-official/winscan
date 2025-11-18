@@ -1,5 +1,6 @@
 {
-  "chain_name": "Shido-Mainnet",
+  "chain_name": "shido-mainnet",
+  "chain_id": "shido_9008-1",
   "api": [
     {
       "address": "https://swagger.shidoscan.com",
@@ -10,8 +11,8 @@
       "provider": "OneNov"
     },
     {
-      "address": "https://api.shido.indonode.net",
-      "provider": "Indonode"
+      "address": "https://api-shido.winnode.xyz",
+      "provider": "Winnode"
     },
     {
       "address": "https://api.shidoscan.net",
@@ -28,8 +29,8 @@
       "provider": "OneNov"
     },
     {
-      "address": "https://rpc.shido.indonode.net:443",
-      "provider": "Indonode"
+      "address": "https://rpc-shido.winnode.xyz",
+      "provider": "Winnode"
     },
     {
       "address": "https://rpc.shidoscan.net",
@@ -50,6 +51,8 @@
     }
   ],
   "addr_prefix": "shido",
+  "bech32_prefix": "shido",
   "theme_color": "#812cd6",
-  "logo": "https://raw.githubusercontent.com/cosmos/chain-registry/master/shido/images/shido.png"
+  "logo": "https://raw.githubusercontent.com/cosmos/chain-registry/master/shido/images/shido.png",
+  "updated": "2025-11-17"
 }

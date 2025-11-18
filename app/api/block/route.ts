@@ -9,7 +9,8 @@ function pubkeyToAddress(pubkeyBase64: string): string {
   try {
     const pubkeyBytes = Buffer.from(pubkeyBase64, 'base64');
     const hash = crypto.createHash('sha256').update(pubkeyBytes).digest();
-    return hash.slice(0, 20).toString('hex').toUpperCase();
+    const address = hash.slice(0, 20);
+    return address.toString('hex').toUpperCase();
   } catch (e) {
     return '';
   }
@@ -27,8 +28,13 @@ export async function GET(request: NextRequest) {
     }
     const chainsDir = path.join(process.cwd(), 'Chains');
     const chainFilePath = path.join(chainsDir, `${chainId}.json`);
+    
+    console.log('[Block API] Looking for chain file:', chainFilePath);
+    console.log('[Block API] Chains directory exists:', fs.existsSync(chainsDir));
+    
     if (!fs.existsSync(chainFilePath)) {
       console.error(`Chain file not found: ${chainFilePath}`);
+      console.error('Available chains:', fs.existsSync(chainsDir) ? fs.readdirSync(chainsDir) : 'directory not found');
       return NextResponse.json(
         { error: 'Chain configuration not found' },
         { status: 404 }

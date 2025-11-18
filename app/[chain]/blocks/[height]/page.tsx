@@ -56,11 +56,23 @@ export default function BlockDetailPage() {
   useEffect(() => {
     if (selectedChain && params?.height) {
       setLoading(true);
-      fetch(`/api/block?chain=${selectedChain.chain_id || selectedChain.chain_name}&height=${params.height}`)
-        .then(res => res.json())
+      setBlock(null); // Reset block state
+      const chainParam = selectedChain.chain_id || selectedChain.chain_name;
+      console.log('Fetching block:', params.height, 'for chain:', chainParam);
+      
+      fetch(`/api/block?chain=${chainParam}&height=${params.height}`)
+        .then(res => {
+          console.log('Response status:', res.status);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          return res.json();
+        })
         .then(data => {
+          console.log('Block data received:', data);
           if (data.error) {
             console.error('Error loading block:', data.error);
+            setBlock(null);
           } else {
             setBlock(data);
           }
@@ -68,6 +80,7 @@ export default function BlockDetailPage() {
         })
         .catch(err => {
           console.error('Error loading block:', err);
+          setBlock(null);
           setLoading(false);
         });
     }

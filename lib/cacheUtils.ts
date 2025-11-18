@@ -1,5 +1,5 @@
-const CACHE_VERSION = 'v1';
-const CACHE_EXPIRY = 30000; // 30 seconds
+const CACHE_VERSION = 'v2';
+const CACHE_EXPIRY = 60000;
 export interface CacheData<T> {
   data: T;
   timestamp: number;
