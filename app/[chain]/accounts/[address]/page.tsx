@@ -11,7 +11,6 @@ import { Wallet, Copy, CheckCircle, XCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getTranslation } from '@/lib/i18n';
-import { fetchAccountDirectly, fetchBalanceDirectly, fetchTxsByAddressDirectly } from '@/lib/cosmos-client';
 
 interface AccountDetail {
   address: string;
@@ -100,96 +99,40 @@ export default function AccountPage() {
       }
 
       // Always fetch fresh data (in background if cache exists)
-      const fetchAccountData = async () => {
-        try {
-          // Strategy: Try direct LCD fetch first
-          const lcdEndpoints = selectedChain.api?.map(api => ({
-            address: api.address,
-            provider: api.provider || 'Unknown'
-          })) || [];
-          
-          if (lcdEndpoints.length > 0) {
-            try {
-              
-              // Fetch account, balance, and transactions in parallel
-              const [accountData, balances, txsData] = await Promise.all([
-                fetchAccountDirectly(lcdEndpoints, params.address as string).catch(() => null),
-                fetchBalanceDirectly(lcdEndpoints, params.address as string).catch(() => []),
-                fetchTxsByAddressDirectly(lcdEndpoints, params.address as string, 100).catch(() => [])
-              ]);
-              
-              const formattedAccount: AccountDetail = {
-                address: params.address as string,
-                balances: balances,
-                delegations: [], // Would need separate endpoint
-                rewards: [] // Would need separate endpoint
-              };
-              
-              // Format transactions
-              const formattedTxs = txsData.map((tx: any) => ({
-                hash: tx.txhash,
-                height: parseInt(tx.height),
-                type: tx.tx?.body?.messages?.[0]?.['@type'] || 'unknown',
-                result: tx.code === 0 ? 'success' : 'failed',
-                time: tx.timestamp,
-                fee: tx.tx?.auth_info?.fee?.amount?.[0]?.amount || '0',
-                messages: tx.tx?.body?.messages?.length || 0
-              }));
-              
-              setAccount(formattedAccount);
-              setTransactions(formattedTxs);
-              setLoading(false);
-              setError(null);
-              
-              // Cache the result
-              const cacheKey = `account_${selectedChain.chain_name}_${params.address}`;
-              sessionStorage.setItem(cacheKey, JSON.stringify({
-                accountData: formattedAccount,
-                txData: formattedTxs,
-                timestamp: Date.now()
-              }));
-              
-              return;
-            } catch (directError) {
-            }
-          }
-          
-          // Fallback: Server API
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
-          
-          const r = await fetch(`/api/accounts?chain=${selectedChain.chain_id || selectedChain.chain_name}&address=${params.address}`, { signal: controller.signal });
-          clearTimeout(timeoutId);
-          
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased to 15s
+      
+      fetch(`/api/accounts?chain=${selectedChain.chain_id || selectedChain.chain_name}&address=${params.address}`, { signal: controller.signal })
+        .then(r => {
           if (!r.ok) {
             throw new Error(`HTTP ${r.status}: ${r.statusText}`);
           }
-          
-          const accountData = await r.json();
-          
+          return r.json();
+        })
+        .then((accountData) => {
           if (accountData && accountData.error) {
             throw new Error(accountData.error);
           }
           
           if (accountData) {
             setAccount(accountData);
-            
+
             const txs = accountData.transactions || [];
             const sortedTxs = Array.isArray(txs) 
               ? [...txs].sort((a: any, b: any) => (b.height || 0) - (a.height || 0))
               : [];
             setTransactions(sortedTxs);
-            setError(null);
+            setError(null); // Clear error on success
           }
           setLoading(false);
-          
-          const cacheKey = `account_${selectedChain.chain_name}_${params.address}`;
+
           sessionStorage.setItem(cacheKey, JSON.stringify({
             accountData: accountData || null,
             txData: accountData?.transactions || [],
             timestamp: Date.now()
           }));
-        } catch (err: any) {
+        })
+        .catch(err => {
           console.error('Error loading account:', err);
           
           // Only show error if we don't have cached data
@@ -205,10 +148,8 @@ export default function AccountPage() {
             console.warn('Failed to refresh account data, showing cached version:', err);
             setError(`⚠️ Showing cached data. Failed to refresh: ${err.message}`);
           }
-        }
-      };
-      
-      fetchAccountData();
+        })
+        .finally(() => clearTimeout(timeoutId));
     }
   }, [selectedChain, params]);
 

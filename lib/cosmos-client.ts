@@ -16,32 +16,9 @@ export interface ValidatorResponse {
   };
 }
 
-export interface BlockResponse {
-  block: {
-    header: {
-      height: string;
-      time: string;
-      proposer_address: string;
-    };
-    data: {
-      txs: string[];
-    };
-  };
-  block_id: {
-    hash: string;
-  };
-}
-
-export interface TxResponse {
-  tx_response: any;
-}
-
-export interface AccountResponse {
-  account: any;
-}
-
 /**
  * Fetch validators directly from LCD endpoint (client-side)
+ * Uses browser's fetch API to bypass server IP blocking
  */
 export async function fetchValidatorsDirectly(
   endpoints: LCDEndpoint[],
@@ -50,16 +27,22 @@ export async function fetchValidatorsDirectly(
 ): Promise<any[]> {
   const errors: string[] = [];
   
+  // Try each endpoint until one succeeds
   for (const endpoint of endpoints) {
     try {
+      console.log(`[CosmosClient] Trying ${endpoint.provider}: ${endpoint.address}`);
+      
       const url = `${endpoint.address}/cosmos/staking/v1beta1/validators?status=${status}&pagination.limit=${limit}`;
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
       
       const response = await fetch(url, {
         signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
+        headers: {
+          'Accept': 'application/json',
+        },
+        // Use 'cors' mode to allow cross-origin requests
         mode: 'cors',
       });
       
@@ -77,6 +60,7 @@ export async function fetchValidatorsDirectly(
         continue;
       }
       
+      console.log(`[CosmosClient] ✓ Success from ${endpoint.provider} (${data.validators.length} validators)`);
       return data.validators;
       
     } catch (error: any) {
@@ -85,6 +69,7 @@ export async function fetchValidatorsDirectly(
     }
   }
   
+  // All endpoints failed
   throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
 }
 
@@ -100,14 +85,18 @@ export async function fetchProposalsDirectly(
   
   for (const endpoint of endpoints) {
     try {
-      const url = `${endpoint.address}/cosmos/gov/v1beta1/proposals?proposal_status=${status}&pagination.limit=${limit}`;
+      console.log(`[CosmosClient] Trying ${endpoint.provider}: ${endpoint.address}`);
+      
+      const url = `${endpoint.address}/cosmos/gov/v1beta1/proposals?proposal_status=${status}&pagination.limit=${limit}&pagination.reverse=true`;
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
       
       const response = await fetch(url, {
         signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
+        headers: {
+          'Accept': 'application/json',
+        },
         mode: 'cors',
       });
       
@@ -123,698 +112,10 @@ export async function fetchProposalsDirectly(
       if (!data.proposals) {
         errors.push(`${endpoint.provider}: No proposals field`);
         continue;
-      }      return data.proposals;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch blocks directly from RPC endpoint (client-side)
- */
-export async function fetchBlocksDirectly(
-  endpoints: LCDEndpoint[],
-  minHeight?: number,
-  maxHeight?: number,
-  limit: number = 20
-): Promise<any[]> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            // Get latest block first if no range specified
-      let latestHeight: number;
-      if (!maxHeight) {
-        const latestUrl = `${endpoint.address}/cosmos/base/tendermint/v1beta1/blocks/latest`;
-        const latestRes = await fetch(latestUrl, {
-          headers: { 'Accept': 'application/json' },
-          mode: 'cors',
-        });
-        
-        if (!latestRes.ok) {
-          errors.push(`${endpoint.provider}: Failed to get latest block`);
-          continue;
-        }
-        
-        const latestData = await latestRes.json();
-        latestHeight = parseInt(latestData.block.header.height);
-      } else {
-        latestHeight = maxHeight;
       }
       
-      // Fetch blocks in range
-      const blocks = [];
-      const startHeight = minHeight || (latestHeight - limit + 1);
-      
-      for (let height = latestHeight; height >= startHeight && blocks.length < limit; height--) {
-        try {
-          const blockUrl = `${endpoint.address}/cosmos/base/tendermint/v1beta1/blocks/${height}`;
-          const blockRes = await fetch(blockUrl, {
-            headers: { 'Accept': 'application/json' },
-            mode: 'cors',
-          });
-          
-          if (blockRes.ok) {
-            const blockData = await blockRes.json();
-            blocks.push(blockData);
-          }
-        } catch (e) {
-          // Skip failed blocks
-          continue;
-        }
-      }
-      
-      if (blocks.length > 0) {        return blocks;
-      }
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch single block by height directly from LCD
- */
-export async function fetchBlockByHeightDirectly(
-  endpoints: LCDEndpoint[],
-  height: number | string
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-      const url = `${endpoint.address}/cosmos/base/tendermint/v1beta1/blocks/${height}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch transactions by height directly from LCD
- */
-export async function fetchTxsByHeightDirectly(
-  endpoints: LCDEndpoint[],
-  height: number | string
-): Promise<any[]> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-      const url = `${endpoint.address}/cosmos/tx/v1beta1/txs?events=tx.height=${height}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-      return data.txs || [];
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch transaction by hash directly from LCD
- */
-export async function fetchTxByHashDirectly(
-  endpoints: LCDEndpoint[],
-  hash: string
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/tx/v1beta1/txs/${hash}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.tx_response;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch account by address directly from LCD
- */
-export async function fetchAccountDirectly(
-  endpoints: LCDEndpoint[],
-  address: string
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/auth/v1beta1/accounts/${address}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.account;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch account balance directly from LCD
- */
-export async function fetchBalanceDirectly(
-  endpoints: LCDEndpoint[],
-  address: string
-): Promise<any[]> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/bank/v1beta1/balances/${address}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.balances || [];
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch signing info for uptime tracking
- */
-export async function fetchSigningInfoDirectly(
-  endpoints: LCDEndpoint[],
-  limit: number = 300
-): Promise<any[]> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/slashing/v1beta1/signing_infos?pagination.limit=${limit}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();      return data.info || [];
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch slashing params
- */
-export async function fetchSlashingParamsDirectly(
-  endpoints: LCDEndpoint[]
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/slashing/v1beta1/params`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.params;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch staking params
- */
-export async function fetchStakingParamsDirectly(
-  endpoints: LCDEndpoint[]
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/staking/v1beta1/params`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.params;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch mint params
- */
-export async function fetchMintParamsDirectly(
-  endpoints: LCDEndpoint[]
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/mint/v1beta1/params`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.params;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch distribution params
- */
-export async function fetchDistributionParamsDirectly(
-  endpoints: LCDEndpoint[]
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/distribution/v1beta1/params`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.params;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch gov params
- */
-export async function fetchGovParamsDirectly(
-  endpoints: LCDEndpoint[]
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            // Try multiple gov param endpoints
-      const paramTypes = ['voting', 'deposit', 'tallying'];
-      const params: any = {};
-      
-      for (const type of paramTypes) {
-        try {
-          const url = `${endpoint.address}/cosmos/gov/v1beta1/params/${type}`;
-          const response = await fetch(url, {
-            headers: { 'Accept': 'application/json' },
-            mode: 'cors',
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            params[type] = data[`${type}_params`] || data;
-          }
-        } catch (e) {
-          // Skip failed param types
-        }
-      }
-      
-      if (Object.keys(params).length > 0) {
-                return params;
-      }
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch single validator by address
- */
-export async function fetchValidatorByAddressDirectly(
-  endpoints: LCDEndpoint[],
-  validatorAddress: string
-): Promise<any> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/staking/v1beta1/validators/${validatorAddress}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      
-            return data.validator;
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch validator delegations
- */
-export async function fetchValidatorDelegationsDirectly(
-  endpoints: LCDEndpoint[],
-  validatorAddress: string,
-  limit: number = 1000
-): Promise<any[]> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/staking/v1beta1/validators/${validatorAddress}/delegations?pagination.limit=${limit}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();      return data.delegation_responses || [];
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch validator unbonding delegations
- */
-export async function fetchValidatorUnbondingDelegationsDirectly(
-  endpoints: LCDEndpoint[],
-  validatorAddress: string,
-  limit: number = 1000
-): Promise<any[]> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            const url = `${endpoint.address}/cosmos/staking/v1beta1/validators/${validatorAddress}/unbonding_delegations?pagination.limit=${limit}`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();      return data.unbonding_responses || [];
-      
-    } catch (error: any) {
-      errors.push(`${endpoint.provider}: ${error.message}`);
-      continue;
-    }
-  }
-  
-  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
-}
-
-/**
- * Fetch transactions by address (for validator self-delegate tracking)
- */
-export async function fetchTxsByAddressDirectly(
-  endpoints: LCDEndpoint[],
-  address: string,
-  limit: number = 100
-): Promise<any[]> {
-  const errors: string[] = [];
-  
-  for (const endpoint of endpoints) {
-    try {
-            // Try message.sender filter
-      const url = `${endpoint.address}/cosmos/tx/v1beta1/txs?events=message.sender='${address}'&pagination.limit=${limit}&pagination.reverse=true`;
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' },
-        mode: 'cors',
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();      return data.txs || [];
+      console.log(`[CosmosClient] ✓ Success from ${endpoint.provider} (${data.proposals.length} proposals)`);
+      return data.proposals;
       
     } catch (error: any) {
       errors.push(`${endpoint.provider}: ${error.message}`);
@@ -836,3 +137,479 @@ export function shouldUseDirectFetch(chainName: string): boolean {
   return true;
 }
 
+/**
+ * Fetch blocks directly from LCD endpoint (client-side)
+ */
+export async function fetchBlocksDirectly(
+  endpoints: LCDEndpoint[],
+  limit: number = 20
+): Promise<any[]> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`[CosmosClient] Fetching blocks from ${endpoint.provider}`);
+      
+      // Get latest block first to know the height
+      const latestUrl = `${endpoint.address}/cosmos/base/tendermint/v1beta1/blocks/latest`;
+      const latestResponse = await fetch(latestUrl, {
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      if (!latestResponse.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${latestResponse.status}`);
+        continue;
+      }
+      
+      const latestData = await latestResponse.json();
+      const latestHeight = parseInt(latestData.block?.header?.height || '0');
+      
+      if (!latestHeight) {
+        errors.push(`${endpoint.provider}: No height in response`);
+        continue;
+      }
+      
+      // Fetch recent blocks
+      const blocks = [];
+      for (let i = 0; i < limit; i++) {
+        const height = latestHeight - i;
+        if (height <= 0) break;
+        
+        try {
+          const blockUrl = `${endpoint.address}/cosmos/base/tendermint/v1beta1/blocks/${height}`;
+          const blockResponse = await fetch(blockUrl, {
+            headers: { 'Accept': 'application/json' },
+            mode: 'cors',
+          });
+          
+          if (blockResponse.ok) {
+            const blockData = await blockResponse.json();
+            blocks.push(blockData);
+          }
+        } catch (err) {
+          // Skip failed blocks
+          continue;
+        }
+      }
+      
+      if (blocks.length > 0) {
+        console.log(`[CosmosClient] ✓ Success from ${endpoint.provider} (${blocks.length} blocks)`);
+        return blocks;
+      }
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch single block by height directly from LCD endpoint
+ */
+export async function fetchBlockByHeightDirectly(
+  endpoints: LCDEndpoint[],
+  height: string | number
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`[CosmosClient] Fetching block ${height} from ${endpoint.provider}`);
+      
+      const url = `${endpoint.address}/cosmos/base/tendermint/v1beta1/blocks/${height}`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Success from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch transactions directly from LCD endpoint
+ */
+export async function fetchTransactionsDirectly(
+  endpoints: LCDEndpoint[],
+  page: number = 1,
+  limit: number = 20
+): Promise<any> {
+  const errors: string[] = [];
+  const offset = (page - 1) * limit;
+  
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`[CosmosClient] Fetching transactions from ${endpoint.provider}`);
+      
+      const url = `${endpoint.address}/cosmos/tx/v1beta1/txs?pagination.limit=${limit}&pagination.offset=${offset}&pagination.reverse=true`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Success from ${endpoint.provider} (${data.txs?.length || 0} txs)`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch single transaction by hash
+ */
+export async function fetchTransactionByHashDirectly(
+  endpoints: LCDEndpoint[],
+  hash: string
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`[CosmosClient] Fetching tx ${hash} from ${endpoint.provider}`);
+      
+      const url = `${endpoint.address}/cosmos/tx/v1beta1/txs/${hash}`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Success from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch staking parameters directly
+ */
+export async function fetchStakingParamsDirectly(
+  endpoints: LCDEndpoint[]
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const url = `${endpoint.address}/cosmos/staking/v1beta1/params`;
+      
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Staking params from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch slashing parameters directly
+ */
+export async function fetchSlashingParamsDirectly(
+  endpoints: LCDEndpoint[]
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const url = `${endpoint.address}/cosmos/slashing/v1beta1/params`;
+      
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Slashing params from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch governance parameters directly
+ */
+export async function fetchGovParamsDirectly(
+  endpoints: LCDEndpoint[]
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      // Try to fetch all gov params
+      const [voting, deposit, tally] = await Promise.allSettled([
+        fetch(`${endpoint.address}/cosmos/gov/v1beta1/params/voting`, {
+          headers: { 'Accept': 'application/json' },
+          mode: 'cors',
+        }).then(r => r.ok ? r.json() : null),
+        fetch(`${endpoint.address}/cosmos/gov/v1beta1/params/deposit`, {
+          headers: { 'Accept': 'application/json' },
+          mode: 'cors',
+        }).then(r => r.ok ? r.json() : null),
+        fetch(`${endpoint.address}/cosmos/gov/v1beta1/params/tallying`, {
+          headers: { 'Accept': 'application/json' },
+          mode: 'cors',
+        }).then(r => r.ok ? r.json() : null),
+      ]);
+      
+      const result: any = {};
+      if (voting.status === 'fulfilled' && voting.value) result.voting_params = voting.value;
+      if (deposit.status === 'fulfilled' && deposit.value) result.deposit_params = deposit.value;
+      if (tally.status === 'fulfilled' && tally.value) result.tally_params = tally.value;
+      
+      if (Object.keys(result).length > 0) {
+        console.log(`[CosmosClient] ✓ Gov params from ${endpoint.provider}`);
+        return result;
+      }
+      
+      errors.push(`${endpoint.provider}: No valid params`);
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch distribution parameters directly
+ */
+export async function fetchDistributionParamsDirectly(
+  endpoints: LCDEndpoint[]
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const url = `${endpoint.address}/cosmos/distribution/v1beta1/params`;
+      
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Distribution params from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch mint parameters directly
+ */
+export async function fetchMintParamsDirectly(
+  endpoints: LCDEndpoint[]
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const url = `${endpoint.address}/cosmos/mint/v1beta1/params`;
+      
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Mint params from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch account details directly
+ */
+export async function fetchAccountDirectly(
+  endpoints: LCDEndpoint[],
+  address: string
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`[CosmosClient] Fetching account ${address} from ${endpoint.provider}`);
+      
+      const url = `${endpoint.address}/cosmos/auth/v1beta1/accounts/${address}`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Success from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
+
+/**
+ * Fetch account balances directly
+ */
+export async function fetchBalancesDirectly(
+  endpoints: LCDEndpoint[],
+  address: string
+): Promise<any> {
+  const errors: string[] = [];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const url = `${endpoint.address}/cosmos/bank/v1beta1/balances/${address}`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' },
+        mode: 'cors',
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        errors.push(`${endpoint.provider}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`[CosmosClient] ✓ Balances from ${endpoint.provider}`);
+      return data;
+      
+    } catch (error: any) {
+      errors.push(`${endpoint.provider}: ${error.message}`);
+      continue;
+    }
+  }
+  
+  throw new Error(`All LCD endpoints failed:\n${errors.join('\n')}`);
+}
