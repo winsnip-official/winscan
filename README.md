@@ -316,9 +316,9 @@ WinScan currently supports the following blockchain networks:
 
 **Want to add your chain?** Create a JSON config in `Chains/` directory and submit a PR!
 
-## 🤝 Sponsors
+## 🤝 Partners
 
-We are proud to be sponsored by these amazing projects:
+We are proud to partner with these amazing projects:
 
 <div align="center">
 
@@ -356,9 +356,9 @@ We are proud to be sponsored by these amazing projects:
   </tr>
 </table>
 
-### Become a Sponsor
+### Become a Partner
 
-Interested in sponsoring WinScan? Contact us:
+Interested in partnering with WinScan? Contact us:
 - 📧 Email: [admin@winsnip.xyz](mailto:admin@winsnip.xyz)
 - 💬 Telegram: [@winsnip](https://t.me/winsnip)
 

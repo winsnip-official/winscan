@@ -491,7 +491,7 @@ export default function Home() {
               <div className="mb-16 animate-slide-up" style={{ animationDelay: '0.4s' }}>
                 <div className="text-center mb-8">
                   <h2 className="text-2xl font-bold text-white mb-2">Powered By</h2>
-                  <p className="text-gray-400 text-sm">Our amazing sponsors</p>
+                  <p className="text-gray-400 text-sm">Our amazing partners</p>
                 </div>
                 
                 <div className="flex flex-wrap items-center justify-center gap-8 max-w-4xl mx-auto">
