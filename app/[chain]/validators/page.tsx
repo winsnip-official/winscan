@@ -368,8 +368,9 @@ export default function ValidatorsPage() {
           <ValidatorsTable 
             validators={filteredValidators} 
             chainName={selectedChain?.chain_name || ''}
-              asset={selectedChain?.assets[0]}
-            />
+            asset={selectedChain?.assets[0]}
+            chain={selectedChain}
+          />
         </main>
 
         <footer className="border-t border-gray-800 py-6 px-6 mt-auto">

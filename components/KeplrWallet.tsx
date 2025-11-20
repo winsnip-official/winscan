@@ -2,41 +2,24 @@
 import { useState, useEffect } from 'react';
 import { Wallet, X, Check, AlertCircle } from 'lucide-react';
 import { ChainData } from '@/types/chain';
+import { useWallet } from '@/contexts/WalletContext';
 import {
   isKeplrInstalled,
   connectKeplr,
   disconnectKeplr,
-  getSavedKeplrAccount,
   saveKeplrAccount,
-  onKeplrAccountChange,
-  KeplrAccount,
 } from '@/lib/keplr';
+
 interface KeplrWalletProps {
   selectedChain: ChainData | null;
 }
+
 export default function KeplrWallet({ selectedChain }: KeplrWalletProps) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [account, setAccount] = useState<KeplrAccount | null>(null);
+  const { account, isConnected, setAccount } = useWallet();
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coinType, setCoinType] = useState<118 | 60>(118);
   const [showModal, setShowModal] = useState(false);
-  useEffect(() => {
-    const saved = getSavedKeplrAccount();
-    if (saved && saved.account) {
-      setAccount(saved.account);
-      setIsConnected(true);
-      setCoinType(saved.coinType as 118 | 60);
-    }
-    onKeplrAccountChange((accounts) => {
-      if (accounts.length > 0) {
-        setAccount(accounts[0]);
-        setIsConnected(true);
-      } else {
-        handleDisconnect();
-      }
-    });
-  }, []);
   const handleConnect = async (selectedCoinType: 118 | 60) => {
     if (!selectedChain) {
       setError('Please select a chain first');
@@ -53,7 +36,6 @@ export default function KeplrWallet({ selectedChain }: KeplrWalletProps) {
     try {
       const connectedAccount = await connectKeplr(selectedChain, selectedCoinType);
       setAccount(connectedAccount);
-      setIsConnected(true);
       setCoinType(selectedCoinType);
       const chainId = selectedChain.chain_id || selectedChain.chain_name;
       saveKeplrAccount(connectedAccount, chainId, selectedCoinType);
@@ -61,7 +43,6 @@ export default function KeplrWallet({ selectedChain }: KeplrWalletProps) {
     } catch (err: any) {
       console.error('Keplr connection error:', err);
       setError(err.message || 'Failed to connect to Keplr');
-      setIsConnected(false);
       setAccount(null);
     } finally {
       setIsConnecting(false);
@@ -70,7 +51,6 @@ export default function KeplrWallet({ selectedChain }: KeplrWalletProps) {
   const handleDisconnect = () => {
     disconnectKeplr();
     setAccount(null);
-    setIsConnected(false);
     setError(null);
     window.dispatchEvent(new CustomEvent('keplr_wallet_changed'));
   };
@@ -83,6 +63,7 @@ export default function KeplrWallet({ selectedChain }: KeplrWalletProps) {
     setError(null);
   };
   const formatAddress = (address: string) => {
+    if (!address) return '';
     return `${address.slice(0, 10)}...${address.slice(-6)}`;
   };
   return (

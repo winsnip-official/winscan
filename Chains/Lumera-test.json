@@ -1,5 +1,6 @@
 {
     "chain_name": "lumera-test",
+    "chain_id": "lumera-testnet-2",
     "api": [
         {
             "address": "https://lumera-testnet-api.polkachu.com",

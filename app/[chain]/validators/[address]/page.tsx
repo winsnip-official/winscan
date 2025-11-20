@@ -70,6 +70,10 @@ export default function ValidatorDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'delegations' | 'unbonding' | 'transactions'>('delegations');
+  const [showStakeModal, setShowStakeModal] = useState(false);
+  const [stakeTab, setStakeTab] = useState<'delegate' | 'undelegate' | 'redelegate' | 'withdraw'>('delegate');
+  const [stakeAmount, setStakeAmount] = useState('');
+  const [stakePercentage, setStakePercentage] = useState(0);
 
   const chainPath = useMemo(() => 
     selectedChain ? selectedChain.chain_name.toLowerCase().replace(/\s+/g, '-') : '',
@@ -290,8 +294,14 @@ export default function ValidatorDetailPage() {
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center justify-between gap-2 mb-2">
                       <h3 className="text-2xl font-bold text-white truncate">{validator.moniker}</h3>
+                      <button 
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 whitespace-nowrap"
+                        onClick={() => setShowStakeModal(true)}
+                      >
+                        Manage Stake
+                      </button>
                     </div>
                     
                     {/* Status Badges */}
@@ -854,6 +864,138 @@ export default function ValidatorDetailPage() {
           </div>
         </main>
       </div>
+
+      {/* Stake Management Modal */}
+      {showStakeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowStakeModal(false)}>
+          <div className="bg-[#1a1a1a] rounded-2xl max-w-md w-full p-6 relative" onClick={(e) => e.stopPropagation()}>
+            {/* Close button */}
+            <button 
+              onClick={() => setShowStakeModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+
+            {/* Header */}
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-white mb-1">Manage Stake with {validator?.moniker}</h2>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-400">Staked: 380.317 LUME</span>
+                <span className="text-gray-400">Balance: 0.624 LUME</span>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-2 mb-6 bg-[#111111] p-1 rounded-lg">
+              <button
+                onClick={() => setStakeTab('delegate')}
+                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  stakeTab === 'delegate' 
+                    ? 'bg-white text-black' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Delegate
+              </button>
+              <button
+                onClick={() => setStakeTab('undelegate')}
+                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  stakeTab === 'undelegate' 
+                    ? 'bg-white text-black' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Undelegate
+              </button>
+              <button
+                onClick={() => setStakeTab('redelegate')}
+                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  stakeTab === 'redelegate' 
+                    ? 'bg-white text-black' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Redelegate
+              </button>
+              <button
+                onClick={() => setStakeTab('withdraw')}
+                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  stakeTab === 'withdraw' 
+                    ? 'bg-white text-black' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Withdraw
+              </button>
+            </div>
+
+            {/* Amount Input */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-white text-sm font-medium">Amount to {stakeTab === 'delegate' ? 'Delegate' : stakeTab === 'undelegate' ? 'Undelegate' : stakeTab === 'redelegate' ? 'Redelegate' : 'Withdraw'}</label>
+                <span className="text-gray-400 text-xs">Available: 0.624 LUME</span>
+              </div>
+              <input
+                type="text"
+                value={stakeAmount}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (/^\d*\.?\d*$/.test(value)) {
+                    setStakeAmount(value);
+                  }
+                }}
+                placeholder="0.62393"
+                className="w-full bg-[#111111] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
+
+            {/* Percentage Slider */}
+            <div className="mb-6">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={stakePercentage}
+                onChange={(e) => setStakePercentage(parseInt(e.target.value))}
+                className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between mt-2">
+                <button 
+                  onClick={() => setStakePercentage(25)}
+                  className="px-3 py-1 bg-[#111111] hover:bg-[#222222] text-gray-400 text-xs rounded-lg transition-colors"
+                >
+                  25%
+                </button>
+                <button 
+                  onClick={() => setStakePercentage(50)}
+                  className="px-3 py-1 bg-[#111111] hover:bg-[#222222] text-gray-400 text-xs rounded-lg transition-colors"
+                >
+                  50%
+                </button>
+                <button 
+                  onClick={() => setStakePercentage(100)}
+                  className="px-3 py-1 bg-[#111111] hover:bg-[#222222] text-gray-400 text-xs rounded-lg transition-colors"
+                >
+                  Max
+                </button>
+              </div>
+            </div>
+
+            {/* Advanced Options */}
+            <details className="mb-6">
+              <summary className="text-gray-400 text-sm cursor-pointer flex items-center gap-2 hover:text-white transition-colors">
+                <span>⚙️</span> Advanced Options
+              </summary>
+            </details>
+
+            {/* Confirm Button */}
+            <button className="w-full bg-white hover:bg-gray-200 text-black font-medium py-3 rounded-lg transition-all hover:scale-[1.02] active:scale-[0.98]">
+              Confirm {stakeTab === 'delegate' ? 'Delegate' : stakeTab === 'undelegate' ? 'Undelegate' : stakeTab === 'redelegate' ? 'Redelegate' : 'Withdraw'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

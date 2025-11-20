@@ -363,6 +363,7 @@ export default function ProposalsPage() {
               <ProposalsTable 
                 proposals={filteredProposals} 
                 chainName={selectedChain?.chain_name || ''}
+                chain={selectedChain}
                 t={t}
               />
             </>

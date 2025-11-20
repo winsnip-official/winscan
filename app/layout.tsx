@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { WalletProvider } from "@/contexts/WalletContext";
+
 export const metadata: Metadata = {
   title: "WinScan",
   description: "Multi-chain blockchain explorer powered by WinScan",
@@ -9,6 +11,7 @@ export const metadata: Metadata = {
     apple: '/logo.svg',
   },
 };
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -18,7 +21,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <LanguageProvider>
-          {children}
+          <WalletProvider>
+            {children}
+          </WalletProvider>
         </LanguageProvider>
       </body>
     </html>

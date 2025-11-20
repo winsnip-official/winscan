@@ -204,6 +204,842 @@ declare global {
         isNanoLedger: boolean;
       }>;
       experimentalSuggestChain: (chainInfo: KeplrChainInfo) => Promise<void>;
+      getOfflineSigner: (chainId: string) => any;
+      getOfflineSignerAuto: (chainId: string) => Promise<any>;
     };
+  }
+}
+
+export async function executeStaking(
+  chain: ChainData,
+  type: 'delegate' | 'undelegate' | 'redelegate' | 'withdraw_rewards' | 'withdraw_commission' | 'withdraw',
+  params: {
+    delegatorAddress: string;
+    validatorAddress: string;
+    amount?: string;
+    validatorDstAddress?: string;
+  },
+  gasLimit: string = '300000',
+  memo: string = ''
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    if (!isKeplrInstalled()) {
+      throw new Error('Keplr extension is not installed');
+    }
+
+    const keplr = window.keplr!;
+    let chainId = (chain.chain_id || chain.chain_name).trim();
+    
+    console.log('🔍 executeStaking Debug:', {
+      chain_name: chain.chain_name,
+      chain_id: chain.chain_id,
+      computed_chainId: chainId,
+      type: type,
+      params: params
+    });
+    
+    // Suggest chain to Keplr if not already added
+    try {
+      await keplr.enable(chainId);
+      console.log('✅ Chain enabled:', chainId);
+    } catch (error: any) {
+      // If chain not found, try to suggest it to Keplr
+      if (error.message?.includes('There is no chain info')) {
+        console.log('Chain not found in Keplr, suggesting chain...');
+        const rpcEndpoint = chain.rpc?.[0]?.address || '';
+        const apiEndpoint = chain.api?.[0]?.address || '';
+        
+        await keplr.experimentalSuggestChain({
+          chainId: chainId,
+          chainName: chain.chain_name,
+          rpc: rpcEndpoint,
+          rest: apiEndpoint,
+          bip44: {
+            coinType: parseInt(chain.coin_type || '118'),
+          },
+          bech32Config: {
+            bech32PrefixAccAddr: chain.addr_prefix || 'cosmos',
+            bech32PrefixAccPub: `${chain.addr_prefix || 'cosmos'}pub`,
+            bech32PrefixValAddr: `${chain.addr_prefix || 'cosmos'}valoper`,
+            bech32PrefixValPub: `${chain.addr_prefix || 'cosmos'}valoperpub`,
+            bech32PrefixConsAddr: `${chain.addr_prefix || 'cosmos'}valcons`,
+            bech32PrefixConsPub: `${chain.addr_prefix || 'cosmos'}valconspub`,
+          },
+          currencies: [
+            {
+              coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+              coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+              coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+            },
+          ],
+          feeCurrencies: [
+            {
+              coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+              coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+              coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+              gasPriceStep: {
+                low: 0.01,
+                average: 0.025,
+                high: 0.04,
+              },
+            },
+          ],
+          stakeCurrency: {
+            coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+            coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+            coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+          },
+        });
+        
+        // Try to enable again after suggesting
+        await keplr.enable(chainId);
+      } else {
+        throw error;
+      }
+    }
+    
+    const offlineSigner = await keplr.getOfflineSignerAuto(chainId);
+    
+    // Get accounts to verify
+    const accounts = await offlineSigner.getAccounts();
+    if (accounts.length === 0) {
+      throw new Error('No accounts found');
+    }
+    
+    console.log('✅ Offline signer created for chain ID:', chainId);
+    console.log('Account address:', accounts[0].address);
+    
+    // @ts-ignore
+    const { SigningStargateClient } = await import('@cosmjs/stargate');
+    
+    const rpcEndpoint = chain.rpc?.[0]?.address || '';
+    if (!rpcEndpoint) {
+      throw new Error('No RPC endpoint available');
+    }
+
+    console.log('Connecting to RPC:', rpcEndpoint);
+    
+    // First, get the actual chain ID from the RPC to ensure it matches
+    let actualSigner = offlineSigner;
+    try {
+      const statusResponse = await fetch(`${rpcEndpoint}/status`);
+      const statusData = await statusResponse.json();
+      const rpcChainId = statusData.result.node_info.network;
+      console.log('📡 RPC Chain ID:', rpcChainId);
+      console.log('🔑 Keplr Chain ID:', chainId);
+      
+      if (rpcChainId !== chainId) {
+        console.warn(`⚠️ Chain ID mismatch! RPC: ${rpcChainId}, Keplr: ${chainId}`);
+        console.log('🔄 Re-creating offline signer with correct chain ID...');
+        
+        // Update chainId to match RPC
+        chainId = rpcChainId;
+        
+        // Re-enable with correct chain ID
+        await keplr.enable(chainId);
+        
+        // Re-create offline signer with correct chain ID
+        actualSigner = await keplr.getOfflineSignerAuto(chainId);
+        const correctedAccounts = await actualSigner.getAccounts();
+        console.log('✅ Corrected offline signer created for chain ID:', chainId);
+        console.log('Corrected account:', correctedAccounts[0].address);
+      }
+    } catch (fetchError) {
+      console.warn('Could not fetch chain ID from RPC, continuing with existing chainId:', chainId);
+    }
+    
+    const client = await SigningStargateClient.connectWithSigner(
+      rpcEndpoint,
+      actualSigner,
+      { 
+        broadcastTimeoutMs: 30000, 
+        broadcastPollIntervalMs: 3000,
+      }
+    );
+    
+    console.log('✅ SigningStargateClient connected');
+
+    let msg: any;
+    const denom = chain.assets?.[0]?.base || 'uatom';
+
+    // Map 'withdraw' to 'withdraw_rewards' for backward compatibility
+    const txType = type === 'withdraw' ? 'withdraw_rewards' : type;
+
+    switch (txType) {
+      case 'delegate':
+        msg = {
+          typeUrl: '/cosmos.staking.v1beta1.MsgDelegate',
+          value: {
+            delegatorAddress: params.delegatorAddress,
+            validatorAddress: params.validatorAddress,
+            amount: {
+              denom: denom,
+              amount: params.amount || '0',
+            },
+          },
+        };
+        break;
+
+      case 'undelegate':
+        msg = {
+          typeUrl: '/cosmos.staking.v1beta1.MsgUndelegate',
+          value: {
+            delegatorAddress: params.delegatorAddress,
+            validatorAddress: params.validatorAddress,
+            amount: {
+              denom: denom,
+              amount: params.amount || '0',
+            },
+          },
+        };
+        break;
+
+      case 'redelegate':
+        msg = {
+          typeUrl: '/cosmos.staking.v1beta1.MsgBeginRedelegate',
+          value: {
+            delegatorAddress: params.delegatorAddress,
+            validatorSrcAddress: params.validatorAddress,
+            validatorDstAddress: params.validatorDstAddress || '',
+            amount: {
+              denom: denom,
+              amount: params.amount || '0',
+            },
+          },
+        };
+        break;
+
+      case 'withdraw_rewards':
+        msg = {
+          typeUrl: '/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward',
+          value: {
+            delegatorAddress: params.delegatorAddress,
+            validatorAddress: params.validatorAddress,
+          },
+        };
+        break;
+
+      case 'withdraw_commission':
+        msg = {
+          typeUrl: '/cosmos.distribution.v1beta1.MsgWithdrawValidatorCommission',
+          value: {
+            validatorAddress: params.validatorAddress,
+          },
+        };
+        break;
+
+      default:
+        throw new Error('Invalid staking type');
+    }
+
+    const fee = {
+      amount: [{ denom: denom, amount: '5000' }],
+      gas: gasLimit,
+    };
+
+    const result = await client.signAndBroadcast(
+      params.delegatorAddress,
+      [msg],
+      fee,
+      memo
+    );
+
+    if (result.code === 0) {
+      return { success: true, txHash: result.transactionHash };
+    } else {
+      return { success: false, error: result.rawLog };
+    }
+  } catch (error: any) {
+    console.error('Staking error:', error);
+    return { success: false, error: error.message || 'Transaction failed' };
+  }
+}
+
+export async function executeWithdrawAll(
+  chain: ChainData,
+  params: {
+    delegatorAddress: string;
+    validatorAddress: string;
+    hasRewards: boolean;
+    hasCommission: boolean;
+  },
+  gasLimit: string = '300000',
+  memo: string = ''
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    if (!isKeplrInstalled()) {
+      throw new Error('Keplr extension is not installed');
+    }
+
+    const keplr = window.keplr!;
+    let chainId = (chain.chain_id || chain.chain_name).trim();
+    
+    console.log('🔍 executeWithdrawAll:', {
+      hasRewards: params.hasRewards,
+      hasCommission: params.hasCommission,
+      chainId: chainId
+    });
+    
+    // Enable chain
+    await keplr.enable(chainId);
+    const offlineSigner = await keplr.getOfflineSignerAuto(chainId);
+    
+    // @ts-ignore
+    const { SigningStargateClient } = await import('@cosmjs/stargate');
+    
+    const rpcEndpoint = chain.rpc?.[0]?.address || '';
+    if (!rpcEndpoint) {
+      throw new Error('No RPC endpoint available');
+    }
+
+    // Check and fix chain ID if needed
+    let actualSigner = offlineSigner;
+    try {
+      const statusResponse = await fetch(`${rpcEndpoint}/status`);
+      const statusData = await statusResponse.json();
+      const rpcChainId = statusData.result.node_info.network;
+      
+      if (rpcChainId !== chainId) {
+        chainId = rpcChainId;
+        await keplr.enable(chainId);
+        actualSigner = await keplr.getOfflineSignerAuto(chainId);
+      }
+    } catch (fetchError) {
+      console.warn('Could not verify chain ID from RPC');
+    }
+    
+    const client = await SigningStargateClient.connectWithSigner(
+      rpcEndpoint,
+      actualSigner,
+      { 
+        broadcastTimeoutMs: 30000, 
+        broadcastPollIntervalMs: 3000,
+      }
+    );
+    
+    console.log('✅ Client connected for withdraw all');
+
+    // Build messages array
+    const messages: any[] = [];
+    
+    // Add withdraw rewards message if has rewards
+    if (params.hasRewards) {
+      messages.push({
+        typeUrl: '/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward',
+        value: {
+          delegatorAddress: params.delegatorAddress,
+          validatorAddress: params.validatorAddress,
+        },
+      });
+      console.log('📝 Added withdraw rewards message');
+    }
+    
+    // Add withdraw commission message if has commission
+    if (params.hasCommission) {
+      messages.push({
+        typeUrl: '/cosmos.distribution.v1beta1.MsgWithdrawValidatorCommission',
+        value: {
+          validatorAddress: params.validatorAddress,
+        },
+      });
+      console.log('📝 Added withdraw commission message');
+    }
+
+    if (messages.length === 0) {
+      throw new Error('No messages to send');
+    }
+
+    const denom = chain.assets?.[0]?.base || 'uatom';
+    const gasPrice = `0.025${denom}`;
+
+    console.log('📤 Sending transaction with', messages.length, 'message(s)');
+
+    const result = await client.signAndBroadcast(
+      params.delegatorAddress,
+      messages,
+      {
+        amount: [{ denom, amount: String(Math.floor(parseFloat(gasLimit) * 0.025)) }],
+        gas: gasLimit,
+      },
+      memo
+    );
+
+    console.log('Transaction result:', result);
+
+    if (result.code === 0) {
+      console.log('✅ Withdraw all successful!');
+      return { success: true, txHash: result.transactionHash };
+    } else {
+      console.error('❌ Withdraw all failed:', result.rawLog);
+      return { success: false, error: result.rawLog };
+    }
+  } catch (error: any) {
+    console.error('Withdraw all error:', error);
+    return { success: false, error: error.message || 'Transaction failed' };
+  }
+}
+
+export async function executeWithdrawAllValidators(
+  chain: ChainData,
+  params: {
+    delegatorAddress: string;
+    validatorAddresses: string[];
+  },
+  gasLimit: string = '500000',
+  memo: string = ''
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    if (!isKeplrInstalled()) {
+      throw new Error('Keplr extension is not installed');
+    }
+
+    const keplr = window.keplr!;
+    let chainId = (chain.chain_id || chain.chain_name).trim();
+    
+    console.log('🔍 executeWithdrawAllValidators:', {
+      validatorCount: params.validatorAddresses.length,
+      chainId: chainId
+    });
+    
+    // Enable chain
+    await keplr.enable(chainId);
+    const offlineSigner = await keplr.getOfflineSignerAuto(chainId);
+    
+    // @ts-ignore
+    const { SigningStargateClient } = await import('@cosmjs/stargate');
+    
+    const rpcEndpoint = chain.rpc?.[0]?.address || '';
+    if (!rpcEndpoint) {
+      throw new Error('No RPC endpoint available');
+    }
+
+    // Check and fix chain ID if needed
+    let actualSigner = offlineSigner;
+    try {
+      const statusResponse = await fetch(`${rpcEndpoint}/status`);
+      const statusData = await statusResponse.json();
+      const rpcChainId = statusData.result.node_info.network;
+      
+      if (rpcChainId !== chainId) {
+        chainId = rpcChainId;
+        await keplr.enable(chainId);
+        actualSigner = await keplr.getOfflineSignerAuto(chainId);
+      }
+    } catch (fetchError) {
+      console.warn('Could not verify chain ID from RPC');
+    }
+    
+    const client = await SigningStargateClient.connectWithSigner(
+      rpcEndpoint,
+      actualSigner,
+      { 
+        broadcastTimeoutMs: 30000, 
+        broadcastPollIntervalMs: 3000,
+      }
+    );
+    
+    console.log('✅ Client connected for withdraw all validators');
+
+    // Build messages array for all validators
+    const messages: any[] = params.validatorAddresses.map(validatorAddress => ({
+      typeUrl: '/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward',
+      value: {
+        delegatorAddress: params.delegatorAddress,
+        validatorAddress: validatorAddress,
+      },
+    }));
+    
+    console.log('📝 Created', messages.length, 'withdraw reward messages');
+
+    if (messages.length === 0) {
+      throw new Error('No validators to withdraw from');
+    }
+
+    const denom = chain.assets?.[0]?.base || 'uatom';
+    const gasPrice = `0.025${denom}`;
+
+    console.log('📤 Sending transaction with', messages.length, 'message(s)');
+
+    const result = await client.signAndBroadcast(
+      params.delegatorAddress,
+      messages,
+      {
+        amount: [{ denom, amount: String(Math.floor(parseFloat(gasLimit) * 0.025)) }],
+        gas: gasLimit,
+      },
+      memo
+    );
+
+    console.log('Transaction result:', result);
+
+    if (result.code === 0) {
+      console.log('✅ Withdraw all validators successful!');
+      return { success: true, txHash: result.transactionHash };
+    } else {
+      console.error('❌ Withdraw all validators failed:', result.rawLog);
+      return { success: false, error: result.rawLog };
+    }
+  } catch (error: any) {
+    console.error('Withdraw all validators error:', error);
+    return { success: false, error: error.message || 'Transaction failed' };
+  }
+}
+
+export async function executeSend(
+  chain: ChainData,
+  params: {
+    fromAddress: string;
+    toAddress: string;
+    amount: string;
+    denom: string;
+  },
+  gasLimit: string = '200000',
+  memo: string = 'Integrate WinScan'
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    if (!isKeplrInstalled()) {
+      throw new Error('Keplr extension is not installed');
+    }
+
+    const keplr = window.keplr!;
+    let chainId = (chain.chain_id || chain.chain_name).trim();
+    
+    console.log('🔍 executeSend Debug:', {
+      chain_name: chain.chain_name,
+      chain_id: chain.chain_id,
+      computed_chainId: chainId,
+      params: params
+    });
+    
+    // Suggest chain to Keplr if not already added
+    try {
+      await keplr.enable(chainId);
+      console.log('✅ Chain enabled:', chainId);
+    } catch (error: any) {
+      if (error.message?.includes('There is no chain info')) {
+        console.log('Chain not found in Keplr, suggesting chain...');
+        const rpcEndpoint = chain.rpc?.[0]?.address || '';
+        const apiEndpoint = chain.api?.[0]?.address || '';
+        
+        await keplr.experimentalSuggestChain({
+          chainId: chainId,
+          chainName: chain.chain_name,
+          rpc: rpcEndpoint,
+          rest: apiEndpoint,
+          bip44: {
+            coinType: parseInt(chain.coin_type || '118'),
+          },
+          bech32Config: {
+            bech32PrefixAccAddr: chain.addr_prefix || 'cosmos',
+            bech32PrefixAccPub: `${chain.addr_prefix || 'cosmos'}pub`,
+            bech32PrefixValAddr: `${chain.addr_prefix || 'cosmos'}valoper`,
+            bech32PrefixValPub: `${chain.addr_prefix || 'cosmos'}valoperpub`,
+            bech32PrefixConsAddr: `${chain.addr_prefix || 'cosmos'}valcons`,
+            bech32PrefixConsPub: `${chain.addr_prefix || 'cosmos'}valconspub`,
+          },
+          currencies: [
+            {
+              coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+              coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+              coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+            },
+          ],
+          feeCurrencies: [
+            {
+              coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+              coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+              coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+              gasPriceStep: {
+                low: 0.01,
+                average: 0.025,
+                high: 0.04,
+              },
+            },
+          ],
+          stakeCurrency: {
+            coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+            coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+            coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+          },
+        });
+        
+        await keplr.enable(chainId);
+      } else {
+        throw error;
+      }
+    }
+    
+    const offlineSigner = await keplr.getOfflineSignerAuto(chainId);
+    
+    // Get accounts to verify
+    const accounts = await offlineSigner.getAccounts();
+    if (accounts.length === 0) {
+      throw new Error('No accounts found');
+    }
+    
+    console.log('✅ Offline signer created for chain ID:', chainId);
+    console.log('Account address:', accounts[0].address);
+    
+    // @ts-ignore
+    const { SigningStargateClient } = await import('@cosmjs/stargate');
+    
+    const rpcEndpoint = chain.rpc?.[0]?.address || '';
+    if (!rpcEndpoint) {
+      throw new Error('No RPC endpoint available');
+    }
+
+    console.log('Connecting to RPC:', rpcEndpoint);
+    
+    // Get the actual chain ID from the RPC to ensure it matches
+    let actualSigner = offlineSigner;
+    try {
+      const statusResponse = await fetch(`${rpcEndpoint}/status`);
+      const statusData = await statusResponse.json();
+      const rpcChainId = statusData.result.node_info.network;
+      console.log('📡 RPC Chain ID:', rpcChainId);
+      console.log('🔑 Keplr Chain ID:', chainId);
+      
+      if (rpcChainId !== chainId) {
+        console.warn(`⚠️ Chain ID mismatch! RPC: ${rpcChainId}, Keplr: ${chainId}`);
+        console.log('🔄 Re-creating offline signer with correct chain ID...');
+        
+        try {
+          await keplr.enable(rpcChainId);
+          actualSigner = await keplr.getOfflineSignerAuto(rpcChainId);
+          chainId = rpcChainId;
+          console.log('✅ Successfully re-created signer with RPC chain ID');
+        } catch (e) {
+          console.warn('Failed to recreate signer with RPC chain ID, proceeding with original:', e);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch chain ID from RPC status endpoint:', e);
+    }
+
+    const client = await SigningStargateClient.connectWithSigner(
+      rpcEndpoint,
+      actualSigner
+    );
+
+    console.log('✅ SigningStargateClient connected');
+
+    const exponent = parseInt(String(chain.assets?.[0]?.exponent || '6'));
+    const gasPrice = `0.025${params.denom}`;
+
+    // Create send message
+    const sendMsg = {
+      typeUrl: '/cosmos.bank.v1beta1.MsgSend',
+      value: {
+        fromAddress: params.fromAddress,
+        toAddress: params.toAddress,
+        amount: [{
+          denom: params.denom,
+          amount: params.amount,
+        }],
+      },
+    };
+
+    console.log('📤 Sending transaction:', sendMsg);
+
+    const result = await client.signAndBroadcast(
+      params.fromAddress,
+      [sendMsg],
+      {
+        amount: [{ denom: params.denom, amount: String(Math.floor(parseFloat(gasLimit) * 0.025)) }],
+        gas: gasLimit,
+      },
+      memo
+    );
+
+    console.log('Transaction result:', result);
+
+    if (result.code === 0) {
+      console.log('✅ Transaction successful!');
+      console.log('Transaction hash:', result.transactionHash);
+      return { success: true, txHash: result.transactionHash };
+    } else {
+      console.error('❌ Transaction failed:', result.rawLog);
+      return { success: false, error: result.rawLog };
+    }
+  } catch (error: any) {
+    console.error('Send error:', error);
+    return { success: false, error: error.message || 'Transaction failed' };
+  }
+}
+
+export async function executeVote(
+  chain: ChainData,
+  params: {
+    voterAddress: string;
+    proposalId: string;
+    option: number; // 1=Yes, 2=Abstain, 3=No, 4=NoWithVeto
+  },
+  gasLimit: string = '200000',
+  memo: string = 'Vote via WinScan'
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    if (!isKeplrInstalled()) {
+      throw new Error('Keplr extension is not installed');
+    }
+
+    const keplr = window.keplr!;
+    let chainId = (chain.chain_id || chain.chain_name).trim();
+    
+    console.log('🗳️ executeVote Debug:', {
+      chain_name: chain.chain_name,
+      chain_id: chain.chain_id,
+      computed_chainId: chainId,
+      params: params
+    });
+    
+    // Enable chain
+    try {
+      await keplr.enable(chainId);
+      console.log('✅ Chain enabled:', chainId);
+    } catch (error: any) {
+      if (error.message?.includes('There is no chain info')) {
+        console.log('Chain not found in Keplr, suggesting chain...');
+        const rpcEndpoint = chain.rpc?.[0]?.address || '';
+        const apiEndpoint = chain.api?.[0]?.address || '';
+        
+        await keplr.experimentalSuggestChain({
+          chainId: chainId,
+          chainName: chain.chain_name,
+          rpc: rpcEndpoint,
+          rest: apiEndpoint,
+          bip44: {
+            coinType: parseInt(chain.coin_type || '118'),
+          },
+          bech32Config: {
+            bech32PrefixAccAddr: chain.addr_prefix || 'cosmos',
+            bech32PrefixAccPub: `${chain.addr_prefix || 'cosmos'}pub`,
+            bech32PrefixValAddr: `${chain.addr_prefix || 'cosmos'}valoper`,
+            bech32PrefixValPub: `${chain.addr_prefix || 'cosmos'}valoperpub`,
+            bech32PrefixConsAddr: `${chain.addr_prefix || 'cosmos'}valcons`,
+            bech32PrefixConsPub: `${chain.addr_prefix || 'cosmos'}valconspub`,
+          },
+          currencies: [
+            {
+              coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+              coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+              coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+            },
+          ],
+          feeCurrencies: [
+            {
+              coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+              coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+              coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+              gasPriceStep: {
+                low: 0.01,
+                average: 0.025,
+                high: 0.04,
+              },
+            },
+          ],
+          stakeCurrency: {
+            coinDenom: chain.assets?.[0]?.symbol || 'ATOM',
+            coinMinimalDenom: chain.assets?.[0]?.base || 'uatom',
+            coinDecimals: parseInt(String(chain.assets?.[0]?.exponent || '6')),
+          },
+        });
+        
+        await keplr.enable(chainId);
+      } else {
+        throw error;
+      }
+    }
+    
+    const offlineSigner = await keplr.getOfflineSignerAuto(chainId);
+    
+    // Verify RPC chain ID matches
+    const rpcEndpoint = chain.rpc?.[0]?.address || '';
+    if (!rpcEndpoint) {
+      throw new Error('No RPC endpoint available');
+    }
+
+    try {
+      const rpcResponse = await fetch(`${rpcEndpoint}/status`);
+      if (rpcResponse.ok) {
+        const rpcData = await rpcResponse.json();
+        const rpcChainId = rpcData.result?.node_info?.network;
+        if (rpcChainId && rpcChainId !== chainId) {
+          console.warn(`⚠️ Chain ID mismatch! Config: ${chainId}, RPC: ${rpcChainId}. Using RPC chain ID.`);
+          chainId = rpcChainId;
+          await keplr.enable(chainId);
+          // Recreate offline signer with correct chain ID
+          const newOfflineSigner = await keplr.getOfflineSignerAuto(chainId);
+          Object.assign(offlineSigner, newOfflineSigner);
+        }
+      }
+    } catch (rpcError) {
+      console.warn('Could not verify RPC chain ID:', rpcError);
+    }
+
+    const accounts = await offlineSigner.getAccounts();
+    if (accounts.length === 0) {
+      throw new Error('No accounts found');
+    }
+    
+    console.log('✅ Voter address:', accounts[0].address);
+    
+    // @ts-ignore
+    const { SigningStargateClient, GasPrice } = await import('@cosmjs/stargate');
+    
+    const gasPrice = GasPrice.fromString(`${chain.min_tx_fee || '0.025'}${chain.assets?.[0]?.base || 'uatom'}`);
+    
+    const client = await SigningStargateClient.connectWithSigner(
+      rpcEndpoint,
+      offlineSigner,
+      {
+        gasPrice,
+      }
+    );
+
+    console.log('Creating MsgVote transaction...');
+
+    const voteMsg = {
+      typeUrl: '/cosmos.gov.v1beta1.MsgVote',
+      value: {
+        proposalId: params.proposalId,
+        voter: params.voterAddress,
+        option: params.option,
+      },
+    };
+
+    console.log('Vote message:', voteMsg);
+
+    const fee = {
+      amount: [
+        {
+          denom: chain.assets?.[0]?.base || 'uatom',
+          amount: Math.ceil(parseFloat(gasLimit) * parseFloat(chain.min_tx_fee || '0.025')).toString(),
+        },
+      ],
+      gas: gasLimit,
+    };
+
+    console.log('Broadcasting transaction...');
+
+    const result = await client.signAndBroadcast(
+      params.voterAddress,
+      [voteMsg],
+      fee,
+      memo
+    );
+
+    console.log('Transaction result:', result);
+
+    if (result.code === 0) {
+      console.log('✅ Vote successful!');
+      console.log('Transaction hash:', result.transactionHash);
+      return { success: true, txHash: result.transactionHash };
+    } else {
+      console.error('❌ Vote failed:', result.rawLog);
+      return { success: false, error: result.rawLog };
+    }
+  } catch (error: any) {
+    console.error('Vote error:', error);
+    return { success: false, error: error.message || 'Vote failed' };
   }
 }
